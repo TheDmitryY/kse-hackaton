@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: str
     AWS_SECRET_ACCESS_KEY: str
     REGION_NAME: str
+    
+    # AI / LLM / Vector Store
+    OLLAMA_BASE_URL: str = "http://kse_ollama:11434"
+    CHROMA_HOST: str = "kse_chromadb"
+    CHROMA_PORT: int = 8000
+    LLM_MODEL: str = "llama3.2"
 
     model_config = SettingsConfigDict(
         env_file=".env",
