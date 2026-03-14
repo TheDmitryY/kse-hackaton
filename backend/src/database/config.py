@@ -18,6 +18,14 @@ async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def create_db_and_tables():
+    # Import models to ensure they are registered with Base metadata
+    import src.auth.models
+    import src.users.models
+    import src.admin.models
+    import src.cities.models
+    import src.universities.models
+    import src.programs.models
+    
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

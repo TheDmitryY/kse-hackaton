@@ -28,6 +28,11 @@ dependencies = [
     "aioboto3>=15.5.0",
     "fastapi-users[sqlalchemy]>=15.0.4",
     "python-multipart>=0.0.22",
+    "langchain>=0.3.17",
+    "langchain-community>=0.3.16",
+    "langchain-chroma>=0.2.2",
+    "langchain-ollama>=0.2.3",
+    "chromadb>=0.6.3",
 ]
 [tool.pytest.ini_options]
 pythonpath = "."

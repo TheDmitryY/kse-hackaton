@@ -46,8 +46,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      migrator:
-        condition: service_completed_successfully
+      # migrator:
+      #   condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${API_PORT:-8000}/api/v1/health')"]
       interval: 5s
@@ -205,6 +205,30 @@ services:
         condition: service_healthy
     networks:
       - kse
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: kse_chromadb
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+    restart: unless-stopped
+    networks:
+      - kse
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: kse_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - kse
       
 networks:
   kse:
@@ -215,3 +239,5 @@ volumes:
   app_logs:
   frontend_build:
   minio_data:
+  chroma_data:
+  ollama_data:
