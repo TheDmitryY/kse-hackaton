@@ -2,7 +2,7 @@ services:
   api:
     build:
       context: ./backend
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
     image: kse-api:latest
     container_name: kse_api
     restart: unless-stopped
@@ -11,15 +11,11 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT:-3001}:3001"
     expose:
-      - "${API_PORT:-8000}"
+      - "${API_PORT:-3001}"
     depends_on:
       database:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
         condition: service_healthy
     networks:
       - kse
@@ -45,6 +41,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_API_ORIGIN: ${VITE_API_ORIGIN:-}
     image: kse-frontend-builder:latest
     container_name: kse_frontend
     restart: "no"
@@ -77,20 +76,6 @@ services:
     networks:
       - kse
 
-  redis:
-    image: redis:8.4.0
-    restart: always
-    expose:
-      - "${REDIS_PORT:-6379}"
-    command: redis-server --requirepass "${PROD_REDIS_ACCOUNT_PASSWORD}"
-    networks:
-      - kse
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   database:
     image: postgres:16
     restart: always
@@ -111,25 +96,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-  rabbitmq:
-    image: rabbitmq:3-management
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-      RABBITMQ_ERLANG_COOKIE: "secret_cookie_here"
-    restart: always
-    expose:
-      - "${RABBITMQ_BROKER_PORT:-5673}"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}"
-    networks:
-      - kse
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 10s
 
 networks:
   kse:

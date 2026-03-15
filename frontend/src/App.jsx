@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   BookOpen,
   BrainCircuit,
@@ -31,6 +31,8 @@ import {
 } from 'recharts'
 
 export default function App() {
+  const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+  const API_ORIGIN = import.meta.env.VITE_API_ORIGIN || '';
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -58,6 +60,16 @@ export default function App() {
 
   // AI Tutor State
   const [isAiTutorModalOpen, setIsAiTutorModalOpen] = useState(false);
+  const [aiMessages, setAiMessages] = useState([
+    { role: 'assistant', text: 'Привіт! Я ШІ-тьютор. Поставте запитання голосом або текстом.' }
+  ]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiStreamingText, setAiStreamingText] = useState('');
+  const [aiIsStreaming, setAiIsStreaming] = useState(false);
+  const [aiIsListening, setAiIsListening] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiIsSynthesizing, setAiIsSynthesizing] = useState(false);
+  const aiRecognitionRef = useRef(null);
 
   // Anti-Cheating State
   const [blurWarningCount, setBlurWarningCount] = useState(0);
@@ -95,19 +107,19 @@ export default function App() {
 
   useEffect(() => {
     // Fetch courses
-    fetch('http://localhost:3001/api/courses')
+    fetch(`${API_BASE_URL}/courses`)
       .then(res => res.json())
       .then(data => setCourses(data))
       .catch(err => console.error("Failed to load courses", err));
 
     // Fetch tests
-    fetch('http://localhost:3001/api/tests')
+    fetch(`${API_BASE_URL}/tests`)
       .then(res => res.json())
       .then(data => setTests(data))
       .catch(err => console.error("Failed to load tests", err));
 
     // Fetch results
-    fetch('http://localhost:3001/api/results')
+    fetch(`${API_BASE_URL}/results`)
       .then(res => res.json())
       .then(data => setResults(data))
       .catch(err => console.error("Failed to load results", err));
@@ -116,7 +128,7 @@ export default function App() {
   // Fetch enrollments on login change
   useEffect(() => {
     if (isAuthenticated && role === 'student' && username) {
-      fetch(`http://localhost:3001/api/enrollments/${username}`)
+      fetch(`${API_BASE_URL}/enrollments/${username}`)
         .then(res => res.json())
         .then(data => setEnrollments(data))
         .catch(err => console.error(err));
@@ -126,12 +138,22 @@ export default function App() {
   // Fetch activities when a course is selected
   useEffect(() => {
     if (selectedCourseId) {
-      fetch(`http://localhost:3001/api/activities/${selectedCourseId}`)
+      fetch(`${API_BASE_URL}/activities/${selectedCourseId}`)
         .then(res => res.json())
         .then(data => setCourseActivities(data))
         .catch(err => console.error(err));
     }
   }, [selectedCourseId]);
+
+  useEffect(() => {
+    return () => {
+      aiMessages.forEach((m) => {
+        if (m.audioUrl) {
+          URL.revokeObjectURL(m.audioUrl);
+        }
+      });
+    };
+  }, [aiMessages]);
 
 
 
@@ -162,7 +184,7 @@ export default function App() {
   }, [currentView, selectedTest, blurWarningCount, testAnswers, essayContent]);
 
   const submitEssay = () => {
-    fetch('http://localhost:3001/api/essay_submissions', {
+    fetch(`${API_BASE_URL}/essay_submissions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -186,7 +208,7 @@ export default function App() {
 
   const submitTest = () => {
     if (!selectedTest) return;
-    fetch(`http://localhost:3001/api/tests/${selectedTest.id}/submit`, {
+    fetch(`${API_BASE_URL}/tests/${selectedTest.id}/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -202,6 +224,195 @@ export default function App() {
         setBlurWarningCount(0); // reset counter
       }
     });
+  };
+
+  const stopAiRecognition = () => {
+    const recognition = aiRecognitionRef.current;
+    if (!recognition) {
+      setAiIsListening(false);
+      return;
+    }
+
+    aiRecognitionRef.current = null;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+    if (aiIsListening) {
+      recognition.stop();
+    }
+    setAiIsListening(false);
+  };
+
+  const closeAiTutorModal = () => {
+    stopAiRecognition();
+    setIsAiTutorModalOpen(false);
+  };
+
+  const synthesizeAiVoice = async (text) => {
+    setAiIsSynthesizing(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/voice`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, language: 'uk' })
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const audioBlob = await response.blob();
+      return URL.createObjectURL(audioBlob);
+    } catch (error) {
+      console.error('Voice synth failed', error);
+      return null;
+    } finally {
+      setAiIsSynthesizing(false);
+    }
+  };
+
+  const sendAiMessage = async (rawText) => {
+    const text = (rawText || '').trim();
+    if (!text || aiIsStreaming) return;
+
+    setAiError('');
+    setAiInput('');
+    setAiStreamingText('');
+    setAiMessages((prev) => [...prev, { role: 'user', text }]);
+    setAiIsStreaming(true);
+
+    let finalText = '';
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          history: aiMessages.map((m) => ({ role: m.role, text: m.text }))
+        })
+      });
+
+      if (!response.ok || !response.body) {
+        const contentType = response.headers.get('content-type') || '';
+        let errorMessage = 'Streaming failed';
+        if (contentType.includes('application/json')) {
+          const errorJson = await response.json();
+          errorMessage = errorJson.details || errorJson.error || errorMessage;
+        } else {
+          errorMessage = await response.text();
+        }
+        throw new Error(errorMessage || 'Streaming failed');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+
+        for (const event of events) {
+          const line = event
+            .split('\n')
+            .find((part) => part.startsWith('data: '));
+          if (!line) continue;
+          const payload = JSON.parse(line.slice(6));
+          if (payload.type === 'chunk') {
+            finalText += payload.text;
+            setAiStreamingText(finalText);
+          }
+          if (payload.type === 'done') {
+            finalText = payload.text || finalText;
+          }
+        }
+      }
+
+      const audioUrl = finalText ? await synthesizeAiVoice(finalText) : null;
+      setAiMessages((prev) => [...prev, { role: 'assistant', text: finalText || 'Немає відповіді', audioUrl }]);
+      setAiStreamingText('');
+    } catch (error) {
+      console.error('AI stream error', error);
+      const message = String(error?.message || '');
+      if (message.toLowerCase().includes('quota') || message.includes('RESOURCE_EXHAUSTED')) {
+        setAiError('Перевищено квоту GROQ_API_KEY. Перевірте billing/limits або спробуйте пізніше.');
+      } else if (message.includes('API key') || message.includes('GROQ_API_KEY')) {
+        setAiError('Некоректний GROQ_API_KEY. Перевірте ключ у .env та перезапустіть api контейнер.');
+      } else {
+        setAiError('Помилка відповіді ШІ. Перевірте GROQ_API_KEY та повторіть.');
+      }
+      setAiStreamingText('');
+    } finally {
+      setAiIsStreaming(false);
+    }
+  };
+
+  const handleAiVoiceInput = () => {
+    if (aiIsListening) {
+      stopAiRecognition();
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setAiError('Браузер не підтримує голосове розпізнавання (працює найкраще у Chrome).');
+      return;
+    }
+
+    const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const isSecure = window.location.protocol === 'https:' || isLocalhost;
+    if (!isSecure) {
+      setAiError('Голосове введення працює лише через HTTPS або localhost.');
+      return;
+    }
+
+    setAiError('');
+    if (aiRecognitionRef.current) {
+      stopAiRecognition();
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'uk-UA';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setAiIsListening(true);
+    };
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript || '';
+      if (transcript) {
+        setAiInput(transcript);
+        sendAiMessage(transcript);
+      }
+    };
+    recognition.onerror = (event) => {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setAiError('Доступ до мікрофона заборонено. Дозвольте доступ у браузері.');
+      } else if (event.error === 'audio-capture') {
+        setAiError('Мікрофон не знайдено або недоступний.');
+      } else if (event.error === 'no-speech') {
+        setAiError('Мовлення не розпізнано. Спробуйте ще раз чіткіше.');
+      } else {
+        setAiError('Не вдалося розпізнати голос. Спробуйте ще раз.');
+      }
+      setAiIsListening(false);
+    };
+    recognition.onend = () => {
+      aiRecognitionRef.current = null;
+      setAiIsListening(false);
+    };
+
+    aiRecognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch (_error) {
+      aiRecognitionRef.current = null;
+      setAiIsListening(false);
+      setAiError('Не вдалося запустити запис. Спробуйте ще раз через 1-2 секунди.');
+    }
   };
 
   const handleLogin = (e) => {
@@ -674,7 +885,7 @@ export default function App() {
                         {role === 'student' && !enrollments.includes(course.id) ? (
                           <button 
                             onClick={() => {
-                              fetch('http://localhost:3001/api/enroll', {
+                              fetch(`${API_BASE_URL}/enroll`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ student_id: username, course_id: course.id })
@@ -762,7 +973,7 @@ export default function App() {
                   <div className="pt-6 border-t border-gray-100 flex justify-end">
                     <button 
                       onClick={() => {
-                        fetch('http://localhost:3001/api/courses', {
+                        fetch(`${API_BASE_URL}/courses`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify(courseForm)
@@ -772,7 +983,7 @@ export default function App() {
                           if (res.success) {
                             alert("Курс успішно створено!");
                             // refresh courses
-                            fetch('http://localhost:3001/api/courses')
+                            fetch(`${API_BASE_URL}/courses`)
                               .then(r => r.json())
                               .then(data => setCourses(data));
                             setCourseForm({ title: '', description: '' });
@@ -890,7 +1101,7 @@ export default function App() {
                              key={activity.id} 
                              onClick={() => {
                                if (activity.type === 'pdf') {
-                                 window.open(`http://localhost:3001${activity.content}`, '_blank');
+                                 window.open(`${API_ORIGIN}${activity.content}`, '_blank');
                                } else if (activity.type === 'essay') {
                                  setSelectedTest(activity); // reuse selectedTest for essay active state
                                  setCurrentView('take_essay');
@@ -911,7 +1122,7 @@ export default function App() {
                         {tests.filter(t => t.course_id === selectedCourseId).map(test => (
                           <li key={test.id} onClick={() => {
                               setSelectedTest(test);
-                              fetch(`http://localhost:3001/api/tests/${test.id}`)
+                              fetch(`${API_BASE_URL}/tests/${test.id}`)
                                 .then(res => res.json())
                                 .then(data => {
                                   setTestQuestions(data.questions || []);
@@ -1030,7 +1241,7 @@ export default function App() {
                             <button 
                               onClick={() => {
                                 setSelectedTest(test);
-                                fetch(`http://localhost:3001/api/tests/${test.id}`)
+                                fetch(`${API_BASE_URL}/tests/${test.id}`)
                                   .then(res => res.json())
                                   .then(data => {
                                     setTestQuestions(data.questions || []);
@@ -1769,7 +1980,7 @@ export default function App() {
 
                          try {
                            if (activityForm.type === 'test') {
-                             const res = await fetch('http://localhost:3001/api/tests', {
+                             const res = await fetch(`${API_BASE_URL}/tests`, {
                                method: 'POST',
                                headers: { 'Content-Type': 'application/json' },
                                body: JSON.stringify({...activityForm, course_id: parseInt(activityForm.course_id)})
@@ -1777,7 +1988,7 @@ export default function App() {
                              const data = await res.json();
                              if (data.success) {
                                alert("Тест успішно створено!");
-                               fetch('http://localhost:3001/api/tests').then(r => r.json()).then(data => setTests(data));
+                               fetch(`${API_BASE_URL}/tests`).then(r => r.json()).then(data => setTests(data));
                                setIsActivityModalOpen(false);
                              } else {
                                alert("Помилка! Заповніть всі поля.");
@@ -1789,13 +2000,13 @@ export default function App() {
                              }
                              const formData = new FormData();
                              formData.append('file', activityForm.pdfFile);
-                             const uploadRes = await fetch('http://localhost:3001/api/upload', {
+                             const uploadRes = await fetch(`${API_BASE_URL}/upload`, {
                                method: 'POST',
                                body: formData,
                              });
                              const uploadData = await uploadRes.json();
                              if (uploadData.success) {
-                               const res = await fetch('http://localhost:3001/api/activities', {
+                               const res = await fetch(`${API_BASE_URL}/activities`, {
                                  method: 'POST',
                                  headers: { 'Content-Type': 'application/json' },
                                  body: JSON.stringify({
@@ -1813,7 +2024,7 @@ export default function App() {
                                }
                              }
                            } else if (activityForm.type === 'essay') {
-                             const res = await fetch('http://localhost:3001/api/activities', {
+                             const res = await fetch(`${API_BASE_URL}/activities`, {
                                method: 'POST',
                                headers: { 'Content-Type': 'application/json' },
                                body: JSON.stringify({
@@ -2070,13 +2281,13 @@ export default function App() {
       {/* AI Voice Tutor Modal */}
       {isAiTutorModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsAiTutorModalOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeAiTutorModal}></div>
           
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Header */}
             <div className="absolute top-4 right-4 z-20">
               <button 
-                onClick={() => setIsAiTutorModalOpen(false)}
+                onClick={closeAiTutorModal}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2085,34 +2296,83 @@ export default function App() {
               </button>
             </div>
 
-            <div className="p-8 text-center flex flex-col items-center">
-              <div className="w-16 h-16 rounded-2xl bg-blue-50 text-primary flex items-center justify-center mb-6 shadow-sm border border-blue-100">
-                <BrainCircuit className="w-8 h-8" />
+            <div className="p-6 md:p-8">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 text-primary flex items-center justify-center shadow-sm border border-blue-100">
+                  <BrainCircuit className="w-7 h-7" />
+                </div>
+                <div>
+                  <h2 className="text-xl md:text-2xl font-bold text-gray-900">ШІ Голосовий Тьютор</h2>
+                  <p className="text-gray-500 text-sm">Стрімінг відповіді + озвучення через Voice Microservice</p>
+                </div>
               </div>
-              
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">ШІ Голосовий Тьютор</h2>
-              <p className="text-gray-500 text-[15px] mb-10 px-4 leading-relaxed">
-                Натисніть на мікрофон та почніть говорити. Я готовий пояснити будь-яку тему чи розібрати ваші помилки.
-              </p>
 
-              {/* Pulsing Microphone Button */}
-              <div className="relative mb-8">
-                {/* Pulse animations */}
-                <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" style={{ animationDuration: '3s' }}></div>
-                <div className="absolute inset-[-20px] rounded-full border border-primary/20 animate-ping" style={{ animationDuration: '2s', animationDelay: '0.5s' }}></div>
-                
-                <button className="relative w-28 h-28 rounded-full bg-primary text-white flex items-center justify-center shadow-[0_0_40px_rgba(30,93,216,0.5)] hover:bg-blue-700 hover:scale-105 transition-all duration-300">
-                  <Mic className="w-10 h-10" />
+              <div className="h-72 overflow-y-auto rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
+                {aiMessages.map((message, idx) => (
+                  <div key={idx} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${message.role === 'user' ? 'bg-primary text-white' : 'bg-white text-gray-900 border border-gray-200'}`}>
+                      <div>{message.text}</div>
+                      {message.audioUrl && (
+                        <audio controls className="mt-2 w-full">
+                          <source src={message.audioUrl} type="audio/mpeg" />
+                        </audio>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {aiIsStreaming && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm bg-white text-gray-900 border border-gray-200">
+                      {aiStreamingText || 'Генерую відповідь...'}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {aiError && (
+                <div className="mt-3 text-sm text-red-600 font-medium">{aiError}</div>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={handleAiVoiceInput}
+                  disabled={aiIsStreaming}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${aiIsListening ? 'bg-red-500 text-white' : 'bg-primary text-white hover:bg-blue-700'} disabled:opacity-50`}
+                  title={aiIsListening ? 'Зупинити запис' : 'Почати голосове введення'}
+                >
+                  <Mic className="w-5 h-5" />
+                </button>
+
+                <input
+                  value={aiInput}
+                  onChange={(e) => setAiInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      sendAiMessage(aiInput);
+                    }
+                  }}
+                  placeholder="Поставте запитання до ШІ..."
+                  className="flex-1 h-12 rounded-xl border border-gray-200 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+
+                <button
+                  onClick={() => sendAiMessage(aiInput)}
+                  disabled={aiIsStreaming || !aiInput.trim()}
+                  className="px-4 h-12 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Надіслати
                 </button>
               </div>
 
-              <div className="text-sm font-bold text-primary animate-pulse">
-                Слухаю...
+              <div className="mt-2 text-xs text-gray-500">
+                {aiIsListening ? 'Слухаю...' : aiIsSynthesizing ? 'Озвучую відповідь...' : 'Готово до діалогу'}
               </div>
             </div>
             
             <div className="bg-gray-50 border-t border-gray-100 p-4 text-center">
-              <p className="text-xs text-gray-400 font-medium">Говоріть чітко. Використовуйте українську мову для кращих результатів.</p>
+              <p className="text-xs text-gray-400 font-medium">Використовується GROQ_API_KEY для тексту та Voice Microservice для аудіо.</p>
             </div>
           </div>
         </div>
