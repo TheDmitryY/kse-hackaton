@@ -12,11 +12,13 @@ Its purpose is to improve learning outcomes with AI-assisted tutoring: students 
 ### Prerequisites
 - Docker + Docker Compose
 - A valid Google Gemini API key (for AI tutor text generation)
+- Open app via `localhost` or HTTPS (required for browser microphone API)
 
 ### Quick start (recommended)
 1. Configure environment:
    - Copy/update `.env` in the repository root.
-   - Set `GROQ_API_KEY` to your key.
+   - Set `GEMINI_API` to your key.
+   - Ensure DB links are set (`DATABASE_URL`, `NODE_DATABASE_URL`).
 2. Start the stack:
    ```bash
    docker compose up --build -d
@@ -24,6 +26,7 @@ Its purpose is to improve learning outcomes with AI-assisted tutoring: students 
 3. Open the app:
    - Frontend via Nginx: `http://localhost` (or `http://localhost:${NGINX_PORT}`)
    - API (proxied): `http://localhost/api`
+   - For voice input, use `localhost` (not `0.0.0.0`) or HTTPS.
 4. Stop services:
    ```bash
    docker compose down -v
@@ -37,7 +40,7 @@ make stop
 
 ### Default demo credentials (frontend)
 - Student: `student / student`
-- Lecturer: `teacher / teacher`
+- Lecturer: `lecturer / lecturer`
 
 ### API endpoints (short reference)
 
@@ -69,10 +72,16 @@ Base URL (via Nginx): `http://localhost/api`
 - **Infra:** Docker Compose, Nginx reverse proxy
 
 ### AI services and AI-related features
-- **Groq Chat Completions API** (`llama-3.3-70b-versatile` by default) for AI tutor responses
+- **Google Gemini API** (`GEMINI_API`, model from `GEMINI_MODEL`) for AI tutor responses
 - **SSE streaming** from backend to frontend for incremental tutor output
 - **Voice synthesis microservice** for converting AI text responses to audio
 - **Browser speech recognition** (Web Speech API, if available) for voice input
+
+### Voice input note (important)
+- Browser microphone recognition works only in a **secure context**:
+  - `https://...`, or
+  - `http://localhost` (special browser exception).
+- `http://0.0.0.0` is treated as insecure by browsers, so voice recording may fail there.
 
 ## 4) Educational challenge addressed
 
