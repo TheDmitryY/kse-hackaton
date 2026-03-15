@@ -1,243 +1,31 @@
-
 services:
-  nginx:
-    image: nginx:alpine
-    container_name: kse_nginx
-    restart: always
-    ports:
-      - "${NGINX_PORT:-80}:80"
-    volumes:
-      - frontend_build:/usr/share/nginx/html:ro
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-    depends_on:
-      api:
-        condition: service_healthy
-      # frontend:
-      #   condition: service_completed_successfully
-      minio:
-        condition: service_healthy
-    networks:
-      - kse
-  
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: docker/Dockerfile
-  #   volumes:
-  #     - frontend_build:/app/dist
-  #   restart: "no"
-
-  api:
-    image: kse-api:latest
+  voice:
+    build:
+      context: ./src/voice
+      dockerfile: Dockerfile
+    image: kse-voice:latest
+    container_name: kse_voice
     restart: unless-stopped
+    ports:
+      - "${VOICE_PORT:-8001}:8001"
+    expose:
+      - "${VOICE_PORT:-8001}"
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      - PYTHONUNBUFFERED=1
     volumes:
-      - app_logs:/app/logs
-    expose:
-      - "${API_PORT:-8000}"
-    working_dir: /app
-    env_file:
-      - .env
-    depends_on:
-      database:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      # migrator:
-      #   condition: service_completed_successfully
+      - voice_audio:/tmp/voice_audio
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${API_PORT:-8000}/api/v1/health')"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - kse
-
-  redis:
-    image: redis:8.4.0
-    restart: always
-    expose:
-      - "${REDIS_PORT:-6379}"
-    volumes:
-      - ./redis.conf:/usr/local/etc/redis/redis.conf
-      - redis_data:/data
-    command: redis-server --requirepass "${PROD_REDIS_ACCOUNT_PASSWORD}"
-    networks:
-      - kse
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  database:
-      image: postgres:16
-      restart: always
-      env_file:
-        - .env
-      expose:
-        - "${POSTGRES_PORT:-5432}"
-      environment:
-        POSTGRES_USER: ${POSTGRES_USER}
-        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-        POSTGRES_DB: ${POSTGRES_DB}
-      volumes:
-        - ./pgdata:/var/lib/postgresql/data
-      networks:
-        - kse
-      healthcheck:
-        test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-        interval: 5s
-        timeout: 5s
-        retries: 5
-
-  rabbitmq:
-    image: rabbitmq:3-management
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-    restart: always
-    expose:
-      - "${RABBITMQ_BROKER_PORT:-5673}"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq/mnesia/
-    networks:
-      - kse
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${VOICE_PORT:-8001}/health')"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 10s
-
-  loki:
-    image: grafana/loki:3.0.0
-    expose:
-      - "${LOKI_PORT:-3100}"
-    command: -config.file=/etc/loki/local-config.yaml
+      retries: 3
+      start_period: 5s
     networks:
       - kse
 
-  promtail:
-    image: grafana/promtail:3.0.0
-    volumes:
-      - app_logs:/var/log/app
-      - ./promtail-config.yaml:/etc/promtail/config.yml
-    command: -config.file=/etc/promtail/config.yml
-    networks:
-      - kse
-    depends_on:
-      - loki
-
-  grafana:
-    image: grafana/grafana:latest
-    expose:
-      - "${GRAFANA_PORT:-3000}"
-    environment:
-      GF_AUTH_ANONYMOUS_ENABLED: ${GF_AUTH_ANONYMOUS_ENABLED:-false}
-      GF_AUTH_ANONYMOUS_ORG_ROLE: ${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}
-      GF_AUTH_BASIC_ENABLED: "${GF_AUTH_BASIC_ENABLED:-true}"
-      GF_SERVER_DOMAIN: ${GF_SERVER_DOMAIN:-localhost}
-      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://localhost/grafana/}
-      GF_SERVER_SERVE_FROM_SUB_PATH: ${GF_SERVER_SERVE_FROM_SUB_PATH:-true}
-    volumes:
-    - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
-    - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
-    - ./grafana/dashboards:/etc/grafana/provisioning/dashboards/jsons:ro
-    networks:
-      - kse
-    depends_on:
-      - loki
-
-  prometheus:
-    image: prom/prometheus:latest
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    expose:
-      - "${PROMETHEUS_PORT:-9090}"
-    networks:
-      - kse
-
-  minio:
-    image: minio/minio
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    command: [ "server", "--console-address", ":9001", "/data" ]
-    networks:
-      - kse
-    volumes:
-      - minio_data:/data
-    expose:
-      - "${MINIO_API_PORT:-9000}"
-      - "${MINIO_CONSOLE_PORT:-9001}"
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-  
-  minio-buckets:
-    image: quay.io/minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    restart: on-failure
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc alias set dockerminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
-      /usr/bin/mc mb dockerminio/${MINIO_BUCKET_NAME:-avatars};
-      exit 0;
-      "
-  migrator:
-    image: kse-api:latest
-    command: alembic upgrade head 
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-    depends_on:
-      database:
-        condition: service_healthy
-    networks:
-      - kse
-
-  chromadb:
-    image: chromadb/chroma:latest
-    container_name: kse_chromadb
-    ports:
-      - "8001:8000"
-    volumes:
-      - chroma_data:/chroma/chroma
-    environment:
-      - IS_PERSISTENT=TRUE
-    restart: unless-stopped
-    networks:
-      - kse
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: kse_ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    restart: unless-stopped
-    networks:
-      - kse
-      
 networks:
   kse:
     driver: bridge
+
 volumes:
-  redis_data:
-  rabbitmq_data:
-  app_logs:
-  frontend_build:
-  minio_data:
-  chroma_data:
-  ollama_data:
+  voice_audio:

@@ -4,8 +4,6 @@ from src.users.router import router as user_router
 from src.admin.router import router as admin_router
 from src.auth.provider import AppProvider
 from src.database.provider import DatabaseProvider
-from src.programs.provider import ProgramProvider
-from src.programs.router import router as program_router
 from dishka import make_async_container
 from src.config import settings
 from src.middlewars.config import RequestLoggingMiddleware
@@ -41,7 +39,6 @@ app.add_middleware(RequestLoggingMiddleware)
 container = make_async_container(
     AppProvider(),
     DatabaseProvider(DATABASE_URL=settings.DATABASE_URL),
-    ProgramProvider()
 )
 
 setup_dishka(container, app)
@@ -56,12 +53,6 @@ app.include_router(
     prefix="/api/v1/auth",
     tags=["auth"]
     )
-
-app.include_router(
-    program_router,
-    prefix="/api/v1/programs",
-    tags=["programs"]
-)
 
 # app.include_router(
 #     user_router,

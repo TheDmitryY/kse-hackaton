@@ -7,8 +7,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database.config import Base
 
-if TYPE_CHECKING:
-    from src.posts.models import Post
 
 
 class User(Base):
@@ -25,7 +23,7 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    posts: Mapped[List["Post"]] = relationship(
-        "Post", back_populates="author", cascade="all, delete-orphan"
-    )
+    # posts: Mapped[List["Post"]] = relationship(
+    #     "Post", back_populates="author", cascade="all, delete-orphan"
+    # )
 

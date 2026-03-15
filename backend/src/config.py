@@ -14,11 +14,10 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str
     REGION_NAME: str
     
-    # AI / LLM / Vector Store
-    OLLAMA_BASE_URL: str = "http://kse_ollama:11434"
+    GEMINI_API_KEY: str
     CHROMA_HOST: str = "kse_chromadb"
     CHROMA_PORT: int = 8000
-    LLM_MODEL: str = "llama3.2"
+    LLM_MODEL: str = "gemini-1.5-pro"
 
     model_config = SettingsConfigDict(
         env_file=".env",

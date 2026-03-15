@@ -7,11 +7,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements/dev.txt ./requirements/dev.txt
+COPY pyproject.toml uv.lock ./
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements/dev.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir uv
 
 COPY . .
 
-CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+RUN rm -rf .venv && \
+    uv sync --frozen --no-dev
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

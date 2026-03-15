@@ -2,8 +2,9 @@ from src.admin.repository import AdminRepository
 from src.admin.exceptions import NotFoundException, BanException, UnBanException
 from src.users.schemas import ResponseUserDTO
 from fastapi import Depends
+from loguru import logger
 import uuid
-from typing import List
+from typing import List, Optional
 
 class AdminService:
     def __init__(self, admin_repo: AdminRepository):
