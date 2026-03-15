@@ -31,7 +31,7 @@ dependencies = [
     "langchain>=0.3.17",
     "langchain-community>=0.3.16",
     "langchain-chroma>=0.2.2",
-    "langchain-ollama>=0.2.3",
+    "langchain-google-genai>=0.1.5",
     "chromadb>=0.6.3",
 ]
 [tool.pytest.ini_options]
@@ -55,4 +55,3 @@ disallow_any_generics = true
 init_forbid_extra = true
 init_typed = true
 warn_required_dynamic_aliases = true
-

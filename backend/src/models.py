@@ -7,9 +7,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.config import Base
 
-if TYPE_CHECKING:
-    from src.posts.models import Post
-
 
 class User(Base):
     __tablename__ = "users"
