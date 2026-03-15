@@ -1,0 +1,1 @@
+You are a backend architect and developer, and your task is to create a microservice that can play audio using a library (framework). Technical stack: FastAPI, Docker Compose. The implementation must include the ability to access the service container via the Docker network. The entire service must be located in the voice folder.

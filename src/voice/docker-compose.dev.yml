@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  voice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kse_voice_dev
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./app:/app/app
+      - voice_audio:/tmp/voice_audio
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+volumes:
+  voice_audio:
